@@ -52,6 +52,12 @@
                     opacity: 0.7;
                 }
             }
+            .resize-handle {
+                @apply absolute w-5 h-5 bg-primary rounded-full -mr-2.5 -mb-2.5 border-2 border-white cursor-se-resize right-0 bottom-0 shadow-md z-10;
+            }
+            .resize-handle:active {
+                @apply scale-90;
+            }
         }
     </style>
 </head>
@@ -84,7 +90,8 @@
             </h2>
             <div class="flex flex-col md:flex-row gap-6">
                 <div class="w-full md:w-2/3">
-                    <div id="videoContainer" class="relative bg-gray-900 rounded-lg overflow-hidden aspect-video">
+                    <!-- 可调整大小的视频容器 -->
+                    <div id="videoContainer" class="relative bg-gray-900 rounded-lg overflow-hidden" style="width: 100%; min-height: 240px; height: 50vh; max-height: 80vh;">
                         <video id="preview" class="w-full h-full object-cover" autoplay muted></video>
                         <div id="recordingIndicator" class="absolute top-4 right-4 bg-red-500 text-white px-3 py-1 rounded-full text-sm hidden">
                             <i class="fa fa-circle mr-1"></i>录制中
@@ -93,9 +100,15 @@
                         <button id="switchCameraBtn" class="absolute top-4 left-4 bg-black/50 text-white p-2 rounded-full hover:bg-black/70 transition-all hidden">
                             <i class="fa fa-refresh"></i>
                         </button>
+                        <!-- 全屏按钮 -->
+                        <button id="fullscreenToggle" class="absolute top-4 right-24 bg-black/50 text-white p-2 rounded-full hover:bg-black/70 transition-all hidden">
+                            <i class="fa fa-expand"></i>
+                        </button>
                         <div id="noCameraMessage" class="absolute inset-0 flex items-center justify-center text-white text-lg">
                             请点击开始录制按钮启用摄像头
                         </div>
+                        <!-- 调整大小的手柄 -->
+                        <div id="resizeHandle" class="resize-handle hidden"></div>
                     </div>
                 </div>
                 <div class="w-full md:w-1/3 flex flex-col justify-center gap-4">
@@ -117,6 +130,7 @@
                         <p><i class="fa fa-info-circle mr-1"></i> 支持电脑和手机摄像头录制</p>
                         <p><i class="fa fa-info-circle mr-1"></i> 可多次录制，所有视频将保存在相册中</p>
                         <p><i class="fa fa-info-circle mr-1"></i> <span class="text-primary">点击摄像头图标可切换前后镜头</span></p>
+                        <p><i class="fa fa-info-circle mr-1"></i> <span class="text-primary">拖动右下角可调整窗口大小</span></p>
                     </div>
                 </div>
             </div>
@@ -168,6 +182,10 @@
         let currentCamera = 'environment'; // 默认使用后置摄像头
         const SPECIAL_SEPARATOR = '|||__VIDEO_SEPARATOR__|||'; // 特殊分隔符
         
+        // 调整大小相关变量
+        let isResizing = false;
+        let startX, startY, startWidth, startHeight;
+        
         // DOM元素
         const preview = document.getElementById('preview');
         const startRecordBtn = document.getElementById('startRecordBtn');
@@ -186,6 +204,9 @@
         const closeModalBtn = document.getElementById('closeModalBtn');
         const exportBtn = document.getElementById('exportBtn');
         const importFile = document.getElementById('importFile');
+        const videoContainer = document.getElementById('videoContainer');
+        const resizeHandle = document.getElementById('resizeHandle');
+        const fullscreenToggle = document.getElementById('fullscreenToggle');
         
         // 初始化
         document.addEventListener('DOMContentLoaded', () => {
@@ -202,6 +223,15 @@
             closeModalBtn.addEventListener('click', closeModal);
             exportBtn.addEventListener('click', exportAllVideos);
             importFile.addEventListener('change', importVideos);
+            fullscreenToggle.addEventListener('click', toggleFullscreen);
+            
+            // 调整大小事件监听
+            resizeHandle.addEventListener('mousedown', startResize);
+            resizeHandle.addEventListener('touchstart', startResizeTouch);
+            document.addEventListener('mousemove', resize);
+            document.addEventListener('touchmove', resizeTouch);
+            document.addEventListener('mouseup', stopResize);
+            document.addEventListener('touchend', stopResize);
             
             // 点击模态框背景关闭
             videoModal.addEventListener('click', (e) => {
@@ -209,7 +239,102 @@
                     closeModal();
                 }
             });
+            
+            // 响应窗口大小变化
+            window.addEventListener('resize', adjustVideoContainer);
         });
+        
+        // 调整视频容器大小以适应屏幕
+        function adjustVideoContainer() {
+            // 在小屏幕上设置更大的默认高度
+            if (window.innerWidth < 768) {
+                if (!isResizing) {
+                    videoContainer.style.height = '60vh';
+                }
+            }
+        }
+        
+        // 开始调整大小（鼠标）
+        function startResize(e) {
+            isResizing = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            startWidth = parseInt(document.defaultView.getComputedStyle(videoContainer).width, 10);
+            startHeight = parseInt(document.defaultView.getComputedStyle(videoContainer).height, 10);
+            e.preventDefault();
+        }
+        
+        // 开始调整大小（触摸）
+        function startResizeTouch(e) {
+            isResizing = true;
+            startX = e.touches[0].clientX;
+            startY = e.touches[0].clientY;
+            startWidth = parseInt(document.defaultView.getComputedStyle(videoContainer).width, 10);
+            startHeight = parseInt(document.defaultView.getComputedStyle(videoContainer).height, 10);
+            e.preventDefault();
+        }
+        
+        // 调整大小（鼠标）
+        function resize(e) {
+            if (!isResizing) return;
+            
+            const width = startWidth + (e.clientX - startX);
+            const height = startHeight + (e.clientY - startY);
+            
+            // 设置最小尺寸限制，确保在手机上也有足够大的窗口
+            const minWidth = window.innerWidth < 768 ? window.innerWidth * 0.8 : 480;
+            const minHeight = window.innerWidth < 768 ? 320 : 240;
+            
+            if (width > minWidth && height > minHeight) {
+                videoContainer.style.width = `${width}px`;
+                videoContainer.style.height = `${height}px`;
+            }
+        }
+        
+        // 调整大小（触摸）
+        function resizeTouch(e) {
+            if (!isResizing) return;
+            
+            const width = startWidth + (e.touches[0].clientX - startX);
+            const height = startHeight + (e.touches[0].clientY - startY);
+            
+            // 设置最小尺寸限制
+            const minWidth = window.innerWidth < 768 ? window.innerWidth * 0.8 : 480;
+            const minHeight = window.innerWidth < 768 ? 320 : 240;
+            
+            if (width > minWidth && height > minHeight) {
+                videoContainer.style.width = `${width}px`;
+                videoContainer.style.height = `${height}px`;
+            }
+        }
+        
+        // 停止调整大小
+        function stopResize() {
+            isResizing = false;
+        }
+        
+        // 切换全屏模式
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                if (videoContainer.requestFullscreen) {
+                    videoContainer.requestFullscreen();
+                } else if (videoContainer.webkitRequestFullscreen) {
+                    videoContainer.webkitRequestFullscreen();
+                } else if (videoContainer.msRequestFullscreen) {
+                    videoContainer.msRequestFullscreen();
+                }
+                fullscreenToggle.innerHTML = '<i class="fa fa-compress"></i>';
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                } else if (document.webkitExitFullscreen) {
+                    document.webkitExitFullscreen();
+                } else if (document.msExitFullscreen) {
+                    document.msExitFullscreen();
+                }
+                fullscreenToggle.innerHTML = '<i class="fa fa-expand"></i>';
+            }
+        }
         
         // 切换摄像头
         async function switchCamera() {
@@ -270,10 +395,12 @@
                     audio: true
                 });
                 
-                // 显示预览和切换按钮
+                // 显示预览、切换按钮、调整大小手柄和全屏按钮
                 preview.srcObject = stream;
                 noCameraMessage.classList.add('hidden');
                 switchCameraBtn.classList.remove('hidden');
+                resizeHandle.classList.remove('hidden');
+                fullscreenToggle.classList.remove('hidden');
                 
                 // 准备录制
                 recordedBlobs = [];
@@ -365,6 +492,8 @@
             postRecordingActions.classList.add('hidden');
             startRecordBtn.classList.remove('hidden');
             switchCameraBtn.classList.add('hidden');
+            resizeHandle.classList.add('hidden');
+            fullscreenToggle.classList.add('hidden');
             preview.srcObject = null;
             noCameraMessage.classList.remove('hidden');
             recordedBlobs = null;
@@ -627,6 +756,10 @@
             // 重置文件输入，允许重复选择同一个文件
             importFile.value = '';
         }
+        
+        // 初始化时调整视频容器大小
+        adjustVideoContainer();
     </script>
 </body>
 </html>
+    
