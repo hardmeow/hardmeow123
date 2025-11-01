@@ -3,9 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>私人视频相册</title>
+    <title>私人视频相册（支持拍照）</title>
+    <!-- 新增依赖：localForage(IndexedDB)、JSZip(ZIP打包) -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/localforage@1.10.0/dist/localforage.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <script>
         // Tailwind 配置
         tailwind.config = {
@@ -66,16 +69,17 @@
     <header class="bg-white shadow-md fixed w-full top-0 z-50 transition-all duration-300">
         <div class="container mx-auto px-4 py-3 flex justify-between items-center">
             <div class="flex items-center space-x-2">
-                <i class="fa fa-video-camera text-primary text-2xl"></i>
-                <h1 class="text-xl font-bold text-primary">私人视频相册</h1>
+                <i class="fa fa-camera text-primary text-2xl"></i>
+                <h1 class="text-xl font-bold text-primary">私人影音相册</h1>
             </div>
             <div class="flex space-x-4">
                 <button id="exportBtn" class="bg-secondary hover:bg-secondary/90 text-white px-4 py-2 rounded-lg flex items-center transition-all">
-                    <i class="fa fa-download mr-2"></i>导出
+                    <i class="fa fa-download mr-2"></i>导出(ZIP)
                 </button>
                 <label for="importFile" class="bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg flex items-center cursor-pointer transition-all">
                     <i class="fa fa-upload mr-2"></i>导入
-                    <input id="importFile" type="file" accept=".txt" class="hidden">
+                    <!-- 支持ZIP和旧TXT格式 -->
+                    <input id="importFile" type="file" accept=".zip,.txt" class="hidden">
                 </label>
             </div>
         </div>
@@ -83,16 +87,20 @@
 
     <!-- 主内容区 -->
     <main class="container mx-auto px-4 pt-24 pb-16">
-        <!-- 录制区域 -->
+        <!-- 录制/拍照区域 -->
         <section class="mb-12 bg-white rounded-xl shadow-lg p-6">
             <h2 class="text-xl font-semibold mb-4 flex items-center">
-                <i class="fa fa-circle text-secondary mr-2"></i>视频录制
+                <i class="fa fa-circle text-secondary mr-2"></i>视频录制 & 拍照
             </h2>
             <div class="flex flex-col md:flex-row gap-6">
                 <div class="w-full md:w-2/3">
                     <!-- 可调整大小的视频容器 -->
                     <div id="videoContainer" class="relative bg-gray-900 rounded-lg overflow-hidden" style="width: 100%; min-height: 240px; height: 50vh; max-height: 80vh;">
                         <video id="preview" class="w-full h-full object-cover" autoplay muted></video>
+                        <!-- 拍照预览帧（临时显示） -->
+                        <div id="photoPreview" class="absolute inset-0 hidden flex items-center justify-center">
+                            <img id="photoPreviewImg" class="max-w-full max-h-full object-contain" src="" alt="拍照预览">
+                        </div>
                         <div id="recordingIndicator" class="absolute top-4 right-4 bg-red-500 text-white px-3 py-1 rounded-full text-sm hidden">
                             <i class="fa fa-circle mr-1"></i>录制中
                         </div>
@@ -118,6 +126,10 @@
                     <button id="stopRecordBtn" class="bg-red-500 hover:bg-red-600 text-white py-3 rounded-lg flex items-center justify-center text-lg transition-all hidden">
                         <i class="fa fa-stop mr-2"></i>停止录制
                     </button>
+                    <!-- 新增拍照按钮 -->
+                    <button id="takePhotoBtn" class="bg-green-500 hover:bg-green-600 text-white py-3 rounded-lg flex items-center justify-center text-lg transition-all hidden">
+                        <i class="fa fa-camera mr-2"></i>拍摄照片
+                    </button>
                     <div id="postRecordingActions" class="flex gap-4 hidden">
                         <button id="saveRecordBtn" class="flex-1 bg-green-500 hover:bg-green-600 text-white py-3 rounded-lg flex items-center justify-center text-lg transition-all">
                             <i class="fa fa-save mr-2"></i>保存
@@ -126,9 +138,18 @@
                             <i class="fa fa-times mr-2"></i>取消
                         </button>
                     </div>
+                    <!-- 拍照后操作 -->
+                    <div id="postPhotoActions" class="flex gap-4 hidden">
+                        <button id="savePhotoBtn" class="flex-1 bg-green-500 hover:bg-green-600 text-white py-3 rounded-lg flex items-center justify-center text-lg transition-all">
+                            <i class="fa fa-save mr-2"></i>保存照片
+                        </button>
+                        <button id="retakePhotoBtn" class="flex-1 bg-gray-500 hover:bg-gray-600 text-white py-3 rounded-lg flex items-center justify-center text-lg transition-all">
+                            <i class="fa fa-refresh mr-2"></i>重拍
+                        </button>
+                    </div>
                     <div class="text-gray-500 text-sm">
-                        <p><i class="fa fa-info-circle mr-1"></i> 支持电脑和手机摄像头录制</p>
-                        <p><i class="fa fa-info-circle mr-1"></i> 可多次录制，所有视频将保存在相册中</p>
+                        <p><i class="fa fa-info-circle mr-1"></i> 支持电脑和手机摄像头录制/拍照</p>
+                        <p><i class="fa fa-info-circle mr-1"></i> 可多次录制/拍照，所有文件将保存在相册中</p>
                         <p><i class="fa fa-info-circle mr-1"></i> <span class="text-primary">点击摄像头图标可切换前后镜头</span></p>
                         <p><i class="fa fa-info-circle mr-1"></i> <span class="text-primary">拖动右下角可调整窗口大小</span></p>
                     </div>
@@ -140,35 +161,38 @@
         <section>
             <div class="flex justify-between items-center mb-6">
                 <h2 class="text-xl font-semibold flex items-center">
-                    <i class="fa fa-th text-primary mr-2"></i>我的视频
+                    <i class="fa fa-th text-primary mr-2"></i>我的影音
                 </h2>
-                <span id="videoCount" class="bg-gray-200 text-gray-700 px-3 py-1 rounded-full text-sm">0 个视频</span>
+                <span id="fileCount" class="bg-gray-200 text-gray-700 px-3 py-1 rounded-full text-sm">0 个文件</span>
             </div>
             
             <div id="albumContainer" class="video-grid">
-                <!-- 视频卡片将通过JS动态添加 -->
+                <!-- 视频/照片卡片将通过JS动态添加 -->
                 <div id="emptyState" class="col-span-full py-16 text-center">
-                    <i class="fa fa-film text-gray-300 text-6xl mb-4"></i>
-                    <p class="text-gray-500 text-lg">相册还是空的，开始录制你的第一个视频吧！</p>
+                    <i class="fa fa-camera text-gray-300 text-6xl mb-4"></i>
+                    <p class="text-gray-500 text-lg">相册还是空的，开始录制视频或拍摄照片吧！</p>
                 </div>
             </div>
         </section>
     </main>
 
-    <!-- 视频预览模态框 -->
-    <div id="videoModal" class="fixed inset-0 bg-black/80 z-50 hidden flex items-center justify-center p-4">
+    <!-- 预览模态框（支持视频/照片） -->
+    <div id="previewModal" class="fixed inset-0 bg-black/80 z-50 hidden flex items-center justify-center p-4">
         <div class="relative w-full max-w-4xl">
             <button id="closeModalBtn" class="absolute -top-12 right-0 text-white text-2xl hover:text-gray-300 transition-colors">
                 <i class="fa fa-times"></i>
             </button>
-            <video id="modalVideo" class="w-full rounded-lg" controls></video>
+            <!-- 视频预览 -->
+            <video id="modalVideo" class="w-full rounded-lg hidden" controls></video>
+            <!-- 照片预览 -->
+            <img id="modalPhoto" class="w-full rounded-lg max-h-[80vh] object-contain hidden" src="" alt="照片预览">
         </div>
     </div>
 
     <!-- 页脚 -->
     <footer class="bg-dark text-white py-6">
         <div class="container mx-auto px-4 text-center">
-            <p>私人视频相册 &copy; 2023</p>
+            <p>私人影音相册 &copy; 2023</p>
             <p class="text-sm text-gray-400 mt-1">保护你的珍贵回忆</p>
         </div>
     </footer>
@@ -177,16 +201,17 @@
         // 全局变量
         let mediaRecorder;
         let recordedBlobs;
-        let videos = [];
+        let files = []; // 统一存储视频和照片（新增）
         let stream = null;
         let currentCamera = 'environment'; // 默认使用后置摄像头
-        const SPECIAL_SEPARATOR = '|||__VIDEO_SEPARATOR__|||'; // 特殊分隔符
+        let photoBlob = null; // 存储拍照的Blob（新增）
+        const SPECIAL_SEPARATOR = '|||__VIDEO_SEPARATOR__|||'; // 保留旧格式兼容
         
         // 调整大小相关变量
         let isResizing = false;
         let startX, startY, startWidth, startHeight;
         
-        // DOM元素
+        // DOM元素（新增/修改）
         const preview = document.getElementById('preview');
         const startRecordBtn = document.getElementById('startRecordBtn');
         const stopRecordBtn = document.getElementById('stopRecordBtn');
@@ -197,33 +222,50 @@
         const recordingIndicator = document.getElementById('recordingIndicator');
         const noCameraMessage = document.getElementById('noCameraMessage');
         const albumContainer = document.getElementById('albumContainer');
-        const videoCount = document.getElementById('videoCount');
+        const fileCount = document.getElementById('fileCount'); // 替换videoCount
         const emptyState = document.getElementById('emptyState');
-        const videoModal = document.getElementById('videoModal');
+        const previewModal = document.getElementById('previewModal'); // 替换videoModal
         const modalVideo = document.getElementById('modalVideo');
+        const modalPhoto = document.getElementById('modalPhoto'); // 新增照片预览
         const closeModalBtn = document.getElementById('closeModalBtn');
         const exportBtn = document.getElementById('exportBtn');
         const importFile = document.getElementById('importFile');
         const videoContainer = document.getElementById('videoContainer');
         const resizeHandle = document.getElementById('resizeHandle');
         const fullscreenToggle = document.getElementById('fullscreenToggle');
+        // 拍照相关元素（新增）
+        const takePhotoBtn = document.getElementById('takePhotoBtn');
+        const postPhotoActions = document.getElementById('postPhotoActions');
+        const savePhotoBtn = document.getElementById('savePhotoBtn');
+        const retakePhotoBtn = document.getElementById('retakePhotoBtn');
+        const photoPreview = document.getElementById('photoPreview');
+        const photoPreviewImg = document.getElementById('photoPreviewImg');
+        
+        // 初始化存储（替换localStorage为localForage）
+        const storage = localforage.createInstance({
+            name: 'PrivateMediaAlbum',
+            storeName: 'mediaFiles'
+        });
         
         // 初始化
         document.addEventListener('DOMContentLoaded', () => {
-            // 尝试从本地存储加载视频
-            loadVideosFromStorage();
-            updateVideoCount();
+            // 尝试从IndexedDB加载文件
+            loadFilesFromStorage();
+            updateFileCount();
             
-            // 事件监听
+            // 事件监听（新增拍照相关）
             startRecordBtn.addEventListener('click', startRecording);
             stopRecordBtn.addEventListener('click', stopRecording);
             saveRecordBtn.addEventListener('click', saveRecording);
             cancelRecordBtn.addEventListener('click', cancelRecording);
             switchCameraBtn.addEventListener('click', switchCamera);
             closeModalBtn.addEventListener('click', closeModal);
-            exportBtn.addEventListener('click', exportAllVideos);
-            importFile.addEventListener('change', importVideos);
+            exportBtn.addEventListener('click', exportAllFiles); // 替换exportAllVideos
+            importFile.addEventListener('change', importFiles); // 替换importVideos
             fullscreenToggle.addEventListener('click', toggleFullscreen);
+            takePhotoBtn.addEventListener('click', takePhoto); // 新增
+            savePhotoBtn.addEventListener('click', savePhoto); // 新增
+            retakePhotoBtn.addEventListener('click', retakePhoto); // 新增
             
             // 调整大小事件监听
             resizeHandle.addEventListener('mousedown', startResize);
@@ -234,8 +276,8 @@
             document.addEventListener('touchend', stopResize);
             
             // 点击模态框背景关闭
-            videoModal.addEventListener('click', (e) => {
-                if (e.target === videoModal) {
+            previewModal.addEventListener('click', (e) => {
+                if (e.target === previewModal) {
                     closeModal();
                 }
             });
@@ -246,7 +288,6 @@
         
         // 调整视频容器大小以适应屏幕
         function adjustVideoContainer() {
-            // 在小屏幕上设置更大的默认高度
             if (window.innerWidth < 768) {
                 if (!isResizing) {
                     videoContainer.style.height = '60vh';
@@ -281,7 +322,6 @@
             const width = startWidth + (e.clientX - startX);
             const height = startHeight + (e.clientY - startY);
             
-            // 设置最小尺寸限制，确保在手机上也有足够大的窗口
             const minWidth = window.innerWidth < 768 ? window.innerWidth * 0.8 : 480;
             const minHeight = window.innerWidth < 768 ? 320 : 240;
             
@@ -298,7 +338,6 @@
             const width = startWidth + (e.touches[0].clientX - startX);
             const height = startHeight + (e.touches[0].clientY - startY);
             
-            // 设置最小尺寸限制
             const minWidth = window.innerWidth < 768 ? window.innerWidth * 0.8 : 480;
             const minHeight = window.innerWidth < 768 ? 320 : 240;
             
@@ -316,48 +355,35 @@
         // 切换全屏模式
         function toggleFullscreen() {
             if (!document.fullscreenElement) {
-                if (videoContainer.requestFullscreen) {
-                    videoContainer.requestFullscreen();
-                } else if (videoContainer.webkitRequestFullscreen) {
-                    videoContainer.webkitRequestFullscreen();
-                } else if (videoContainer.msRequestFullscreen) {
-                    videoContainer.msRequestFullscreen();
-                }
+                if (videoContainer.requestFullscreen) videoContainer.requestFullscreen();
+                else if (videoContainer.webkitRequestFullscreen) videoContainer.webkitRequestFullscreen();
+                else if (videoContainer.msRequestFullscreen) videoContainer.msRequestFullscreen();
                 fullscreenToggle.innerHTML = '<i class="fa fa-compress"></i>';
             } else {
-                if (document.exitFullscreen) {
-                    document.exitFullscreen();
-                } else if (document.webkitExitFullscreen) {
-                    document.webkitExitFullscreen();
-                } else if (document.msExitFullscreen) {
-                    document.msExitFullscreen();
-                }
+                if (document.exitFullscreen) document.exitFullscreen();
+                else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+                else if (document.msExitFullscreen) document.msExitFullscreen();
                 fullscreenToggle.innerHTML = '<i class="fa fa-expand"></i>';
             }
         }
         
         // 切换摄像头
         async function switchCamera() {
-            // 停止当前流
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-            }
+            if (stream) stream.getTracks().forEach(track => track.stop());
             
-            // 切换摄像头类型
             currentCamera = currentCamera === 'environment' ? 'user' : 'environment';
             
             try {
-                // 获取新的媒体流
                 stream = await navigator.mediaDevices.getUserMedia({
                     video: { 
                         width: { ideal: 1280 }, 
                         height: { ideal: 720 },
-                        facingMode: currentCamera
+                        facingMode: currentCamera,
+                        bitrate: { ideal: 1000000, max: 1500000 } // 新增码率限制
                     },
                     audio: true
                 });
                 
-                // 更新预览
                 preview.srcObject = stream;
                 
                 // 如果正在录制，重新启动录制
@@ -365,13 +391,11 @@
                     mediaRecorder.stop();
                     recordedBlobs = [];
                     
-                    const options = { mimeType: 'video/webm; codecs=vp9,opus' };
-                    mediaRecorder = new MediaRecorder(stream, options);
+                    const recordOptions = getBestRecordFormat(); // 新增：自动选择最优格式
+                    mediaRecorder = new MediaRecorder(stream, recordOptions);
                     
                     mediaRecorder.ondataavailable = (event) => {
-                        if (event.data && event.data.size > 0) {
-                            recordedBlobs.push(event.data);
-                        }
+                        if (event.data && event.data.size > 0) recordedBlobs.push(event.data);
                     };
                     
                     mediaRecorder.start();
@@ -382,51 +406,66 @@
             }
         }
         
+        // 新增：检测浏览器支持的最优录制格式（兼容非WebM浏览器）
+        function getBestRecordFormat() {
+            const options = [
+                { mimeType: 'video/webm; codecs=vp9,opus' }, // 优先WebM vp9（高效）
+                { mimeType: 'video/webm; codecs=vp8,vorbis' }, // 降级WebM vp8
+                { mimeType: 'video/mp4; codecs=avc1,mp4a' } // 最后MP4 H.264（兼容性最强）
+            ];
+            
+            for (const opt of options) {
+                if (MediaRecorder.isTypeSupported(opt.mimeType)) {
+                    return opt;
+                }
+            }
+            
+            // 兜底：使用浏览器默认格式
+            return { mimeType: MediaRecorder.isTypeSupported('video/webm') ? 'video/webm' : 'video/mp4' };
+        }
+        
         // 开始录制
         async function startRecording() {
             try {
-                // 获取媒体流
                 stream = await navigator.mediaDevices.getUserMedia({
                     video: { 
                         width: { ideal: 1280 }, 
                         height: { ideal: 720 },
-                        facingMode: currentCamera
+                        facingMode: currentCamera,
+                        bitrate: { ideal: 1000000, max: 1500000 } // 码率限制（1-1.5Mbps）
                     },
                     audio: true
                 });
                 
-                // 显示预览、切换按钮、调整大小手柄和全屏按钮
+                // 显示预览和控制按钮
                 preview.srcObject = stream;
                 noCameraMessage.classList.add('hidden');
                 switchCameraBtn.classList.remove('hidden');
                 resizeHandle.classList.remove('hidden');
                 fullscreenToggle.classList.remove('hidden');
+                takePhotoBtn.classList.remove('hidden'); // 显示拍照按钮
+                startRecordBtn.classList.add('hidden');
+                stopRecordBtn.classList.remove('hidden');
                 
                 // 准备录制
                 recordedBlobs = [];
-                const options = { mimeType: 'video/webm; codecs=vp9,opus' };
+                const recordOptions = getBestRecordFormat(); // 自动选择格式
                 
                 try {
-                    mediaRecorder = new MediaRecorder(stream, options);
+                    mediaRecorder = new MediaRecorder(stream, recordOptions);
                 } catch (e) {
                     console.error('创建MediaRecorder失败:', e);
-                    alert('无法启动录制，请确保你的浏览器支持WebM格式');
+                    alert('无法启动录制，请更新浏览器后重试');
                     return;
                 }
                 
-                // 开始录制
                 mediaRecorder.ondataavailable = (event) => {
-                    if (event.data && event.data.size > 0) {
-                        recordedBlobs.push(event.data);
-                    }
+                    if (event.data && event.data.size > 0) recordedBlobs.push(event.data);
                 };
                 
                 mediaRecorder.start();
                 recordingIndicator.classList.remove('hidden');
-                startRecordBtn.classList.add('hidden');
-                stopRecordBtn.classList.remove('hidden');
-                
-                console.log('录制开始');
+                console.log('录制开始，使用格式:', recordOptions.mimeType);
             } catch (e) {
                 console.error('获取媒体设备失败:', e);
                 alert('无法访问摄像头或麦克风，请确保已授予权限');
@@ -441,33 +480,36 @@
             recordingIndicator.classList.add('hidden');
             stopRecordBtn.classList.add('hidden');
             postRecordingActions.classList.remove('hidden');
+            takePhotoBtn.classList.add('hidden'); // 隐藏拍照按钮
             
             console.log('录制停止');
         }
         
-        // 保存录制
+        // 保存录制视频
         function saveRecording() {
             if (!recordedBlobs || recordedBlobs.length === 0) return;
             
-            // 创建视频Blob
-            const videoBlob = new Blob(recordedBlobs, { type: 'video/webm' });
+            const recordOptions = getBestRecordFormat();
+            const videoBlob = new Blob(recordedBlobs, { type: recordOptions.mimeType });
             const videoUrl = URL.createObjectURL(videoBlob);
             
-            // 创建视频对象
+            // 视频对象（新增fileType字段）
             const video = {
                 id: Date.now(),
+                fileType: 'video',
                 url: videoUrl,
                 blob: videoBlob,
+                mimeType: recordOptions.mimeType,
                 timestamp: new Date().toISOString()
             };
             
-            // 添加到视频列表
-            videos.unshift(video);
+            // 添加到文件列表
+            files.unshift(video);
             
             // 更新UI
-            addVideoToAlbum(video);
-            updateVideoCount();
-            saveVideosToStorage();
+            addFileToAlbum(video);
+            updateFileCount();
+            saveFilesToStorage();
             
             // 重置录制状态
             resetRecordingState();
@@ -476,14 +518,12 @@
         
         // 取消录制
         function cancelRecording() {
-            // 重置录制状态
             resetRecordingState();
             console.log('录制已取消');
         }
         
         // 重置录制状态
         function resetRecordingState() {
-            // 停止所有轨道
             if (stream) {
                 stream.getTracks().forEach(track => track.stop());
                 stream = null;
@@ -494,217 +534,401 @@
             switchCameraBtn.classList.add('hidden');
             resizeHandle.classList.add('hidden');
             fullscreenToggle.classList.add('hidden');
+            takePhotoBtn.classList.add('hidden');
             preview.srcObject = null;
             noCameraMessage.classList.remove('hidden');
             recordedBlobs = null;
             mediaRecorder = null;
         }
         
-        // 添加视频到相册
-        function addVideoToAlbum(video) {
+        // 新增：拍摄照片
+        function takePhoto() {
+            if (!stream) return;
+            
+            // 创建Canvas捕获视频帧
+            const canvas = document.createElement('canvas');
+            const videoWidth = preview.videoWidth;
+            const videoHeight = preview.videoHeight;
+            
+            canvas.width = videoWidth;
+            canvas.height = videoHeight;
+            
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(preview, 0, 0, videoWidth, videoHeight);
+            
+            // 生成JPEG Blob（质量0.8，平衡质量和体积）
+            canvas.toBlob((blob) => {
+                photoBlob = blob;
+                const photoUrl = URL.createObjectURL(blob);
+                
+                // 显示拍照预览
+                photoPreviewImg.src = photoUrl;
+                photoPreview.classList.remove('hidden');
+                preview.classList.add('hidden');
+                
+                // 显示拍照后操作按钮
+                takePhotoBtn.classList.add('hidden');
+                postPhotoActions.classList.remove('hidden');
+            }, 'image/jpeg', 0.8);
+        }
+        
+        // 新增：保存照片
+        function savePhoto() {
+            if (!photoBlob) return;
+            
+            const photoUrl = URL.createObjectURL(photoBlob);
+            
+            // 照片对象（统一格式）
+            const photo = {
+                id: Date.now(),
+                fileType: 'photo',
+                url: photoUrl,
+                blob: photoBlob,
+                mimeType: 'image/jpeg',
+                timestamp: new Date().toISOString()
+            };
+            
+            // 添加到文件列表
+            files.unshift(photo);
+            
+            // 更新UI
+            addFileToAlbum(photo);
+            updateFileCount();
+            saveFilesToStorage();
+            
+            // 重置拍照状态
+            resetPhotoState();
+            console.log('照片已保存');
+        }
+        
+        // 新增：重拍照片
+        function retakePhoto() {
+            resetPhotoState();
+        }
+        
+        // 新增：重置拍照状态
+        function resetPhotoState() {
+            photoPreview.classList.add('hidden');
+            preview.classList.remove('hidden');
+            postPhotoActions.classList.add('hidden');
+            takePhotoBtn.classList.remove('hidden');
+            photoBlob = null;
+            photoPreviewImg.src = '';
+        }
+        
+        // 新增：添加文件到相册（统一处理视频/照片）
+        function addFileToAlbum(file) {
             // 隐藏空状态
-            if (videos.length === 1) {
+            if (files.length === 1) {
                 emptyState.classList.add('hidden');
             }
             
-            // 创建视频卡片
+            // 创建卡片
             const card = document.createElement('div');
             card.className = 'bg-white rounded-xl shadow-md overflow-hidden card-hover';
-            card.dataset.id = video.id;
+            card.dataset.id = file.id;
             
             // 格式化日期
-            const date = new Date(video.timestamp);
+            const date = new Date(file.timestamp);
             const formattedDate = date.toLocaleString();
             
-            card.innerHTML = `
-                <div class="relative aspect-video bg-gray-100">
-                    <video class="w-full h-full object-cover" poster="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 120' %3E%3Crect width='200' height='120' fill='%23f3f4f6'/%3E%3Ccircle cx='100' cy='60' r='20' fill='%239ca3af'/%3E%3Cpolygon points='90,45 90,75 115,60' fill='white'/%3E%3C/svg%3E">
-                        <source src="${video.url}" type="video/webm">
-                    </video>
-                    <button class="play-btn absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 hover:opacity-100 transition-opacity">
-                        <i class="fa fa-play text-white text-4xl"></i>
-                    </button>
-                </div>
+            // 区分视频和照片卡片内容
+            let cardContent = '';
+            if (file.fileType === 'video') {
+                cardContent = `
+                    <div class="relative aspect-video bg-gray-100">
+                        <video class="w-full h-full object-cover" poster="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 120' %3E%3Crect width='200' height='120' fill='%23f3f4f6'/%3E%3Ccircle cx='100' cy='60' r='20' fill='%239ca3af'/%3E%3Cpolygon points='90,45 90,75 115,60' fill='white'/%3E%3C/svg%3E">
+                            <source src="${file.url}" type="${file.mimeType}">
+                        </video>
+                        <button class="play-btn absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 hover:opacity-100 transition-opacity">
+                            <i class="fa fa-play text-white text-4xl"></i>
+                        </button>
+                    </div>
+                `;
+            } else {
+                cardContent = `
+                    <div class="relative aspect-video bg-gray-100">
+                        <img class="w-full h-full object-cover" src="${file.url}" alt="照片">
+                        <button class="preview-btn absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 hover:opacity-100 transition-opacity">
+                            <i class="fa fa-search-plus text-white text-4xl"></i>
+                        </button>
+                    </div>
+                `;
+            }
+            
+            // 卡片底部（新增下载按钮）
+            cardContent += `
                 <div class="p-4">
                     <p class="text-sm text-gray-500 mb-2">${formattedDate}</p>
                     <div class="flex justify-between items-center">
-                        <button class="delete-btn text-red-500 hover:text-red-700 transition-colors">
-                            <i class="fa fa-trash-o"></i> 删除
-                        </button>
-                        <span class="text-xs text-gray-400">视频</span>
+                        <div class="flex gap-3">
+                            <button class="download-btn text-primary hover:text-primary/80 transition-colors">
+                                <i class="fa fa-download"></i> 下载
+                            </button>
+                            <button class="delete-btn text-red-500 hover:text-red-700 transition-colors">
+                                <i class="fa fa-trash-o"></i> 删除
+                            </button>
+                        </div>
+                        <span class="text-xs text-gray-400">${file.fileType === 'video' ? '视频' : '照片'}</span>
                     </div>
                 </div>
             `;
             
+            card.innerHTML = cardContent;
+            
             // 添加事件监听
-            card.querySelector('.play-btn').addEventListener('click', () => {
-                openVideoModal(video.url);
+            if (file.fileType === 'video') {
+                card.querySelector('.play-btn').addEventListener('click', () => {
+                    openPreviewModal(file);
+                });
+            } else {
+                card.querySelector('.preview-btn').addEventListener('click', () => {
+                    openPreviewModal(file);
+                });
+            }
+            
+            // 单个文件下载事件（新增）
+            card.querySelector('.download-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                downloadSingleFile(file);
             });
             
+            // 删除事件
             card.querySelector('.delete-btn').addEventListener('click', (e) => {
                 e.stopPropagation();
-                deleteVideo(video.id);
+                deleteFile(file.id);
             });
             
             // 添加到相册容器
             albumContainer.insertBefore(card, albumContainer.firstChild);
         }
         
-        // 打开视频模态框
-        function openVideoModal(videoUrl) {
-            modalVideo.src = videoUrl;
-            videoModal.classList.remove('hidden');
+        // 新增：打开预览模态框（支持视频/照片）
+        function openPreviewModal(file) {
+            if (file.fileType === 'video') {
+                modalVideo.src = file.url;
+                modalVideo.classList.remove('hidden');
+                modalPhoto.classList.add('hidden');
+            } else {
+                modalPhoto.src = file.url;
+                modalPhoto.classList.remove('hidden');
+                modalVideo.classList.add('hidden');
+            }
+            previewModal.classList.remove('hidden');
             document.body.style.overflow = 'hidden';
         }
         
-        // 关闭视频模态框
+        // 关闭预览模态框
         function closeModal() {
             modalVideo.pause();
             modalVideo.src = '';
-            videoModal.classList.add('hidden');
+            modalPhoto.src = '';
+            previewModal.classList.add('hidden');
             document.body.style.overflow = 'auto';
         }
         
-        // 删除视频
-        function deleteVideo(id) {
-            if (confirm('确定要删除这个视频吗？')) {
+        // 新增：单个文件下载
+        function downloadSingleFile(file) {
+            const fileName = `${file.fileType}_${new Date(file.timestamp).toISOString().split('T')[0]}_${file.id}.${file.mimeType.split('/')[1]}`;
+            
+            const a = document.createElement('a');
+            a.href = file.url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            
+            setTimeout(() => {
+                document.body.removeChild(a);
+            }, 100);
+        }
+        
+        // 删除文件（统一处理视频/照片）
+        function deleteFile(id) {
+            if (confirm('确定要删除这个文件吗？')) {
                 // 从数组中移除
-                videos = videos.filter(video => video.id !== id);
+                files = files.filter(file => file.id !== id);
                 
                 // 从DOM中移除
                 const card = document.querySelector(`[data-id="${id}"]`);
-                if (card) {
-                    card.remove();
-                }
+                if (card) card.remove();
                 
                 // 更新UI
-                updateVideoCount();
-                saveVideosToStorage();
+                updateFileCount();
+                saveFilesToStorage();
                 
                 // 显示空状态
-                if (videos.length === 0) {
+                if (files.length === 0) {
                     emptyState.classList.remove('hidden');
                 }
             }
         }
         
-        // 更新视频计数
-        function updateVideoCount() {
-            videoCount.textContent = `${videos.length} 个视频`;
+        // 更新文件计数（替换updateVideoCount）
+        function updateFileCount() {
+            fileCount.textContent = `${files.length} 个文件`;
         }
         
-        // 保存视频到本地存储
-        function saveVideosToStorage() {
-            // 由于Blob不能直接存储，我们将视频转换为base64
-            const videosData = videos.map(video => {
-                return new Promise((resolve) => {
-                    const reader = new FileReader();
-                    reader.onloadend = () => {
-                        resolve({
-                            id: video.id,
-                            base64: reader.result.split(',')[1], // 移除data URL前缀
-                            timestamp: video.timestamp
-                        });
-                    };
-                    reader.readAsDataURL(video.blob);
+        // 保存文件到IndexedDB（替换localStorage）
+        function saveFilesToStorage() {
+            // 清空现有存储再保存（避免重复）
+            storage.clear().then(() => {
+                const savePromises = files.map(file => {
+                    // 存储文件元数据（Blob直接存储）
+                    return storage.setItem(file.id.toString(), {
+                        id: file.id,
+                        fileType: file.fileType,
+                        mimeType: file.mimeType,
+                        timestamp: file.timestamp,
+                        blob: file.blob
+                    });
                 });
-            });
-            
-            Promise.all(videosData).then(data => {
-                localStorage.setItem('privateAlbumVideos', JSON.stringify(data));
-            });
-        }
-        
-        // 从本地存储加载视频
-        function loadVideosFromStorage() {
-            const videosData = localStorage.getItem('privateAlbumVideos');
-            if (videosData) {
-                const parsedData = JSON.parse(videosData);
                 
-                parsedData.forEach(data => {
-                    // 将base64转换回Blob
-                    const byteCharacters = atob(data.base64);
-                    const byteNumbers = new Array(byteCharacters.length);
-                    for (let i = 0; i < byteCharacters.length; i++) {
-                        byteNumbers[i] = byteCharacters.charCodeAt(i);
-                    }
-                    const byteArray = new Uint8Array(byteNumbers);
-                    const blob = new Blob([byteArray], { type: 'video/webm' });
-                    const url = URL.createObjectURL(blob);
-                    
-                    // 创建视频对象
-                    const video = {
-                        id: data.id,
-                        url: url,
-                        blob: blob,
-                        timestamp: data.timestamp
-                    };
-                    
-                    videos.push(video);
-                    addVideoToAlbum(video);
+                Promise.all(savePromises).then(() => {
+                    console.log('文件已保存到本地存储');
                 });
-            }
+            });
         }
         
-        // 导出所有视频
-        function exportAllVideos() {
-            if (videos.length === 0) {
-                alert('相册中没有视频可导出');
+        // 从IndexedDB加载文件（替换loadVideosFromStorage）
+        function loadFilesFromStorage() {
+            storage.iterate((value) => {
+                // 还原URL
+                const url = URL.createObjectURL(value.blob);
+                
+                const file = {
+                    id: value.id,
+                    fileType: value.fileType,
+                    url: url,
+                    blob: value.blob,
+                    mimeType: value.mimeType,
+                    timestamp: value.timestamp
+                };
+                
+                files.push(file);
+                addFileToAlbum(file);
+            }).then(() => {
+                updateFileCount();
+                console.log('已加载本地存储的文件');
+            });
+        }
+        
+        // 新增：导出所有文件为ZIP
+        function exportAllFiles() {
+            if (files.length === 0) {
+                alert('相册中没有文件可导出');
                 return;
             }
             
-            // 1. 将视频转换为MPC格式（这里模拟转换，实际是WebM）
-            // 注：浏览器中没有真正的MPC格式转换能力，这里使用WebM作为替代
-            const mpcConversions = videos.map(video => {
-                return new Promise((resolve) => {
-                    const reader = new FileReader();
-                    reader.onloadend = () => {
-                        // 模拟MPC格式转换，实际上只是存储base64
-                        resolve({
-                            id: video.id,
-                            mpcData: reader.result.split(',')[1] // 移除data URL前缀
-                        });
-                    };
-                    reader.readAsDataURL(video.blob);
-                });
+            const zip = new JSZip();
+            
+            // 遍历文件添加到ZIP
+            const addFilePromises = files.map(file => {
+                const fileName = `${file.fileType}_${new Date(file.timestamp).toISOString().split('T')[0]}_${file.id}.${file.mimeType.split('/')[1]}`;
+                return zip.file(fileName, file.blob);
             });
             
-            Promise.all(mpcConversions).then(mpcFiles => {
-                // 2. 转换为TXT格式（本质上是将base64视为文本）
-                const txtFiles = mpcFiles.map(mpc => mpc.mpcData);
-                
-                // 3. 用特殊分隔符拼接
-                const combinedTxt = txtFiles.join(SPECIAL_SEPARATOR);
-                
-                // 4. 创建下载
-                const blob = new Blob([combinedTxt], { type: 'text/plain' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `video_album_${new Date().toISOString().split('T')[0]}.txt`;
-                document.body.appendChild(a);
-                a.click();
-                
-                // 清理
-                setTimeout(() => {
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
-                }, 100);
+            Promise.all(addFilePromises).then(() => {
+                // 生成ZIP文件并下载
+                zip.generateAsync({ type: 'blob' }).then((zipBlob) => {
+                    const url = URL.createObjectURL(zipBlob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `media_album_${new Date().toISOString().split('T')[0]}.zip`;
+                    document.body.appendChild(a);
+                    a.click();
+                    
+                    setTimeout(() => {
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                    }, 100);
+                });
             });
         }
         
-        // 导入视频
-        function importVideos(event) {
+        // 新增：导入ZIP/TXT文件（兼容旧格式）
+        function importFiles(event) {
             const file = event.target.files[0];
             if (!file) return;
             
+            // 判断文件类型
+            if (file.name.endsWith('.zip')) {
+                importZipFile(file);
+            } else if (file.name.endsWith('.txt')) {
+                importTxtFile(file); // 兼容旧格式
+            } else {
+                alert('不支持的文件格式，请导入ZIP或TXT文件');
+            }
+            
+            // 重置文件输入
+            importFile.value = '';
+        }
+        
+        // 新增：导入ZIP文件
+        function importZipFile(zipFile) {
             const reader = new FileReader();
+            
+            reader.onload = (e) => {
+                JSZip.loadAsync(e.target.result).then((zip) => {
+                    let successCount = 0;
+                    let failCount = 0;
+                    
+                    // 遍历ZIP中的文件
+                    const importPromises = Object.keys(zip.files).map((fileName) => {
+                        const zipEntry = zip.files[fileName];
+                        if (zipEntry.dir) return Promise.resolve(); // 跳过文件夹
+                        
+                        // 解析文件名判断文件类型
+                        let fileType = 'video';
+                        if (fileName.endsWith('.jpg') || fileName.endsWith('.jpeg')) {
+                            fileType = 'photo';
+                        }
+                        
+                        // 读取文件内容
+                        return zipEntry.async('blob').then((blob) => {
+                            const mimeType = fileType === 'photo' ? 'image/jpeg' : 
+                                            fileName.endsWith('.mp4') ? 'video/mp4' : 'video/webm';
+                            
+                            const url = URL.createObjectURL(blob);
+                            
+                            // 创建文件对象
+                            const file = {
+                                id: Date.now() + Math.floor(Math.random() * 1000), // 确保ID唯一
+                                fileType: fileType,
+                                url: url,
+                                blob: blob,
+                                mimeType: mimeType,
+                                timestamp: new Date().toISOString()
+                            };
+                            
+                            files.unshift(file);
+                            addFileToAlbum(file);
+                            successCount++;
+                        }).catch(() => {
+                            failCount++;
+                        });
+                    });
+                    
+                    Promise.all(importPromises).then(() => {
+                        updateFileCount();
+                        saveFilesToStorage();
+                        alert(`导入完成：成功导入 ${successCount} 个文件，跳过 ${failCount} 个无效文件`);
+                    });
+                }).catch((err) => {
+                    console.error('解析ZIP文件失败:', err);
+                    alert('导入失败：ZIP文件损坏或不支持');
+                });
+            };
+            
+            reader.readAsArrayBuffer(zipFile);
+        }
+        
+        // 保留：导入旧TXT格式（兼容）
+        function importTxtFile(txtFile) {
+            const reader = new FileReader();
+            
             reader.onload = (e) => {
                 try {
-                    // 1. 读取TXT内容
                     const content = e.target.result;
-                    
-                    // 2. 按分隔符拆分
                     const txtFiles = content.split(SPECIAL_SEPARATOR);
                     
                     if (txtFiles.length === 0) {
@@ -712,10 +936,8 @@
                         return;
                     }
                     
-                    // 3. 转换回MPC格式（模拟）并还原为视频
                     txtFiles.forEach((txtData, index) => {
                         try {
-                            // 模拟从MPC转换回视频
                             const byteCharacters = atob(txtData);
                             const byteNumbers = new Array(byteCharacters.length);
                             for (let i = 0; i < byteCharacters.length; i++) {
@@ -725,36 +947,32 @@
                             const blob = new Blob([byteArray], { type: 'video/webm' });
                             const url = URL.createObjectURL(blob);
                             
-                            // 创建视频对象
                             const video = {
-                                id: Date.now() + index, // 确保ID唯一
+                                id: Date.now() + index,
+                                fileType: 'video',
                                 url: url,
                                 blob: blob,
+                                mimeType: 'video/webm',
                                 timestamp: new Date().toISOString()
                             };
                             
-                            // 添加到视频列表
-                            videos.unshift(video);
-                            addVideoToAlbum(video);
+                            files.unshift(video);
+                            addFileToAlbum(video);
                         } catch (err) {
                             console.error('导入视频失败:', err);
-                            alert(`部分视频导入失败: ${err.message}`);
                         }
                     });
                     
-                    // 更新UI
-                    updateVideoCount();
-                    saveVideosToStorage();
-                    alert(`成功导入 ${txtFiles.length} 个视频`);
+                    updateFileCount();
+                    saveFilesToStorage();
+                    alert(`成功导入 ${txtFiles.length} 个视频（旧格式）`);
                 } catch (err) {
                     console.error('导入失败:', err);
                     alert(`导入失败: ${err.message}`);
                 }
             };
-            reader.readAsText(file);
             
-            // 重置文件输入，允许重复选择同一个文件
-            importFile.value = '';
+            reader.readAsText(txtFile);
         }
         
         // 初始化时调整视频容器大小
@@ -762,4 +980,3 @@
     </script>
 </body>
 </html>
-    
